@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/gridscale/gsclient-go/v3"
 	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/terraform"
 )
@@ -13,6 +14,7 @@ var (
 	version string
 	commit  string
 )
+var globalClient *gsclient.Client
 
 func Provider() terraform.ResourceProvider {
 	return &schema.Provider{
@@ -99,8 +101,9 @@ func providerConfigure(d *schema.ResourceData) (interface{}, error) {
 		APIUrl:      d.Get("api_url").(string),
 		HTTPHeaders: headers,
 	}
-
-	return config.Client()
+	client, err := config.Client()
+	globalClient = client
+	return client, err
 }
 
 // getHeaderMapFromStr converts string (format: "key1:val1,key2:val2")
