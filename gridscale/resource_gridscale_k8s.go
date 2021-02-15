@@ -336,21 +336,25 @@ func resourceGridscaleK8sUpdate(d *schema.ResourceData, meta interface{}) error 
 	if err != nil {
 		return fmt.Errorf("%s error: %v", errorPrefix, err)
 	}
-	// Check if the k8s release number exists
-	templateUUID, ok := k8sReleaseTemplateUUIDMap[d.Get("k8s_release").(string)]
-	if !ok {
-		var releases []string
-		for releaseNo := range k8sReleaseTemplateUUIDMap {
-			releases = append(releases, releaseNo)
-		}
-		return fmt.Errorf("%v is not a valid kubernetes release number. Valid release numbers are: %v", d.Get("k8s_release").(string), strings.Join(releases, ","))
-	}
 
 	labels := convSOStrings(d.Get("labels").(*schema.Set).List())
 	requestBody := gsclient.PaaSServiceUpdateRequest{
-		Name:                    d.Get("name").(string),
-		Labels:                  &labels,
-		PaaSServiceTemplateUUID: templateUUID,
+		Name:   d.Get("name").(string),
+		Labels: &labels,
+	}
+
+	// Only update k8s_release, when it is changed
+	if d.HasChange("k8s_release") {
+		// Check if the k8s release number exists
+		templateUUID, ok := k8sReleaseTemplateUUIDMap[d.Get("k8s_release").(string)]
+		if !ok {
+			var releases []string
+			for releaseNo := range k8sReleaseTemplateUUIDMap {
+				releases = append(releases, releaseNo)
+			}
+			return fmt.Errorf("%v is not a valid kubernetes release number. Valid release numbers are: %v", d.Get("k8s_release").(string), strings.Join(releases, ","))
+		}
+		requestBody.PaaSServiceTemplateUUID = templateUUID
 	}
 
 	params := make(map[string]interface{})
