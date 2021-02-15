@@ -17,9 +17,6 @@ var passwordTypes = []string{"plain", "crypt"}
 var firewallActionTypes = []string{"accept", "drop"}
 var firewallRuleProtocols = []string{"udp", "tcp"}
 var marketplaceAppCategories = []string{"CMS", "project management", "Adminpanel", "Collaboration", "Cloud Storage", "Archiving"}
-var k8sReleaseTemplateUUIDMap = make(map[string]string)
-
-const k8sTemplateCategoryName = "kubernetes"
 
 const timeLayout = "2006-01-02 15:04:05"
 const (
@@ -60,22 +57,9 @@ func (c *Config) Client() (*gsclient.Client, error) {
 
 	log.Print("[INFO] gridscale client configured")
 
-	// Get all PaaS service templates
-	// for validating PaaS resource purposes
-	paasTemplates, err := client.GetPaaSTemplateList(context.Background())
-	if err != nil {
-		return nil, err
-	}
-
-	// Get k8s releases and corresponding UUIDs
-	for _, template := range paasTemplates {
-		if template.Properties.Category == k8sTemplateCategoryName {
-			k8sReleaseTemplateUUIDMap[template.Properties.Release] = template.Properties.ObjectUUID
-		}
-	}
-
 	//Make sure the credentials are correct by getting the server list
 	//and init `globalServerStatusList` from fetched server list
-	err = initGlobalServerStatusList(context.Background(), client)
+	err := initGlobalServerStatusList(context.Background(), client)
+
 	return client, err
 }

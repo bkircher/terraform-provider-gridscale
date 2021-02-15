@@ -15,6 +15,8 @@ import (
 	"log"
 )
 
+const k8sTemplateCategoryName = "kubernetes"
+
 func resourceGridscaleK8s() *schema.Resource {
 	return &schema.Resource{
 		Create: resourceGridscaleK8sCreate,
@@ -66,20 +68,10 @@ func resourceGridscaleK8s() *schema.Resource {
 				Computed:    true,
 			},
 			"k8s_release": {
-				Type:        schema.TypeString,
-				Description: "Release number of k8s service",
-				Required:    true,
-				ValidateFunc: func(v interface{}, k string) (ws []string, errors []error) {
-					// Check if the k8s release exists
-					if _, ok := k8sReleaseTemplateUUIDMap[v.(string)]; !ok {
-						var releases []string
-						for releaseNo := range k8sReleaseTemplateUUIDMap {
-							releases = append(releases, releaseNo)
-						}
-						errors = append(errors, fmt.Errorf("%v is not a valid kubernetes release number. Valid release numbers are: %v", v.(string), strings.Join(releases, ",")))
-					}
-					return
-				},
+				Type:         schema.TypeString,
+				Description:  "Release number of k8s service",
+				Required:     true,
+				ValidateFunc: validation.NoZeroValues,
 			},
 			"k8s_release_computed": {
 				Type:        schema.TypeString,
@@ -89,31 +81,31 @@ func resourceGridscaleK8s() *schema.Resource {
 			"worker_node_ram": {
 				Type:        schema.TypeInt,
 				Description: "Memory per worker node",
-				Required:    true,
+				Optional:    true,
 				Default:     16,
 			},
 			"worker_node_cores": {
 				Type:        schema.TypeInt,
 				Description: "Cores per worker node",
-				Required:    true,
+				Optional:    true,
 				Default:     4,
 			},
 			"worker_node_count": {
 				Type:        schema.TypeInt,
 				Description: "Number of worker nodes",
-				Required:    true,
+				Optional:    true,
 				Default:     3,
 			},
 			"worker_node_storage": {
 				Type:        schema.TypeInt,
 				Description: "Storage (in GiB) per worker node",
-				Required:    true,
+				Optional:    true,
 				Default:     30,
 			},
 			"worker_node_storage_type": {
 				Type:        schema.TypeString,
 				Description: "Storage type (one of storage, storage_high, storage_insane)",
-				Required:    true,
+				Optional:    true,
 				Default:     "storage_insane",
 				ValidateFunc: func(v interface{}, k string) (ws []string, errors []error) {
 					valid := false
@@ -212,6 +204,11 @@ func resourceGridscaleK8sRead(d *schema.ResourceData, meta interface{}) error {
 		return fmt.Errorf("%s error setting status: %v", errorPrefix, err)
 	}
 
+	k8sReleaseTemplateUUIDMap, err := getK8sReleaseTemplateUUIDMap(client)
+	if err != nil {
+		return fmt.Errorf("%s error: %v", errorPrefix, err)
+	}
+
 	// Get k8s release number based on paas_service_template_uuid
 	var validTemplateUUID bool
 	for k, v := range k8sReleaseTemplateUUIDMap {
@@ -291,9 +288,23 @@ func resourceGridscaleK8sCreate(d *schema.ResourceData, meta interface{}) error 
 	client := meta.(*gsclient.Client)
 	errorPrefix := fmt.Sprintf("create k8s (%s) resource -", d.Id())
 
+	k8sReleaseTemplateUUIDMap, err := getK8sReleaseTemplateUUIDMap(client)
+	if err != nil {
+		return fmt.Errorf("%s error: %v", errorPrefix, err)
+	}
+	// Check if the k8s release number exists
+	templateUUID, ok := k8sReleaseTemplateUUIDMap[d.Get("k8s_release").(string)]
+	if !ok {
+		var releases []string
+		for releaseNo := range k8sReleaseTemplateUUIDMap {
+			releases = append(releases, releaseNo)
+		}
+		return fmt.Errorf("%v is not a valid kubernetes release number. Valid release numbers are: %v", d.Get("k8s_release").(string), strings.Join(releases, ","))
+	}
+
 	requestBody := gsclient.PaaSServiceCreateRequest{
 		Name:                    d.Get("name").(string),
-		PaaSServiceTemplateUUID: k8sReleaseTemplateUUIDMap[d.Get("k8s_release").(string)],
+		PaaSServiceTemplateUUID: templateUUID,
 		Labels:                  convSOStrings(d.Get("labels").(*schema.Set).List()),
 		PaaSSecurityZoneUUID:    d.Get("security_zone_uuid").(string),
 	}
@@ -321,11 +332,25 @@ func resourceGridscaleK8sUpdate(d *schema.ResourceData, meta interface{}) error 
 	client := meta.(*gsclient.Client)
 	errorPrefix := fmt.Sprintf("update k8s (%s) resource -", d.Id())
 
+	k8sReleaseTemplateUUIDMap, err := getK8sReleaseTemplateUUIDMap(client)
+	if err != nil {
+		return fmt.Errorf("%s error: %v", errorPrefix, err)
+	}
+	// Check if the k8s release number exists
+	templateUUID, ok := k8sReleaseTemplateUUIDMap[d.Get("k8s_release").(string)]
+	if !ok {
+		var releases []string
+		for releaseNo := range k8sReleaseTemplateUUIDMap {
+			releases = append(releases, releaseNo)
+		}
+		return fmt.Errorf("%v is not a valid kubernetes release number. Valid release numbers are: %v", d.Get("k8s_release").(string), strings.Join(releases, ","))
+	}
+
 	labels := convSOStrings(d.Get("labels").(*schema.Set).List())
 	requestBody := gsclient.PaaSServiceUpdateRequest{
 		Name:                    d.Get("name").(string),
 		Labels:                  &labels,
-		PaaSServiceTemplateUUID: k8sReleaseTemplateUUIDMap[d.Get("k8s_release").(string)],
+		PaaSServiceTemplateUUID: templateUUID,
 	}
 
 	params := make(map[string]interface{})
@@ -338,7 +363,7 @@ func resourceGridscaleK8sUpdate(d *schema.ResourceData, meta interface{}) error 
 
 	ctx, cancel := context.WithTimeout(context.Background(), d.Timeout(schema.TimeoutUpdate))
 	defer cancel()
-	err := client.UpdatePaaSService(ctx, d.Id(), requestBody)
+	err = client.UpdatePaaSService(ctx, d.Id(), requestBody)
 	if err != nil {
 		return fmt.Errorf("%s error: %v", errorPrefix, err)
 	}
@@ -359,4 +384,24 @@ func resourceGridscaleK8sDelete(d *schema.ResourceData, meta interface{}) error 
 		return fmt.Errorf("%s error: %v", errorPrefix, err)
 	}
 	return nil
+}
+
+// getK8sReleaseTemplateUUIDMap gets all k8s service templates' release numbers and their UUIDs.
+// Returns a map where release numbers are keys and UUIDs are values.
+func getK8sReleaseTemplateUUIDMap(client *gsclient.Client) (map[string]string, error) {
+	k8sReleaseTemplateUUIDMap := make(map[string]string)
+	// Get all PaaS service templates
+	// for validating PaaS resource purposes
+	paasTemplates, err := client.GetPaaSTemplateList(context.Background())
+	if err != nil {
+		return k8sReleaseTemplateUUIDMap, err
+	}
+
+	// Get k8s releases and corresponding UUIDs
+	for _, template := range paasTemplates {
+		if template.Properties.Category == k8sTemplateCategoryName {
+			k8sReleaseTemplateUUIDMap[template.Properties.Release] = template.Properties.ObjectUUID
+		}
+	}
+	return k8sReleaseTemplateUUIDMap, nil
 }
