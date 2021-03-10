@@ -78,47 +78,56 @@ func resourceGridscaleK8s() *schema.Resource {
 				Description: "Release number of k8s service. The `k8s_release_computed` will be different from `k8s_release`, when `k8s_release` is updated outside of terraform.",
 				Computed:    true,
 			},
-			"worker_node_ram": {
-				Type:        schema.TypeInt,
-				Description: "Memory per worker node",
-				Optional:    true,
-				Default:     16,
-			},
-			"worker_node_cores": {
-				Type:        schema.TypeInt,
-				Description: "Cores per worker node",
-				Optional:    true,
-				Default:     4,
-			},
-			"worker_node_count": {
-				Type:        schema.TypeInt,
-				Description: "Number of worker nodes",
-				Optional:    true,
-				Default:     3,
-			},
-			"worker_node_storage": {
-				Type:        schema.TypeInt,
-				Description: "Storage (in GiB) per worker node",
-				Optional:    true,
-				Default:     30,
-			},
-			"worker_node_storage_type": {
-				Type:        schema.TypeString,
-				Description: "Storage type (one of storage, storage_high, storage_insane)",
-				Optional:    true,
-				Default:     "storage_insane",
-				ValidateFunc: func(v interface{}, k string) (ws []string, errors []error) {
-					valid := false
-					for _, stype := range storageTypes {
-						if v.(string) == stype {
-							valid = true
-							break
-						}
-					}
-					if !valid {
-						errors = append(errors, fmt.Errorf("%v is not a valid storage type. Valid types are: %v", v.(string), strings.Join(storageTypes, ",")))
-					}
-					return
+			"node_pool": {
+				Type:        schema.TypeList,
+				Required:    true,
+				Description: `A list of node pools, there can be multiple in a k8s cluster. The cluster scheduler can assign certain workloads to certain node pools.`,
+				Elem: &schema.Resource{
+					Schema: map[string]*schema.Schema{
+						"name": {
+							Type:     schema.TypeString,
+							Required: true,
+						},
+						"node_count": {
+							Type:        schema.TypeInt,
+							Description: "Number of worker nodes",
+							Required:    true,
+						},
+						"cores": {
+							Type:        schema.TypeInt,
+							Description: "Cores per worker node",
+							Required:    true,
+						},
+						"memory": {
+							Type:        schema.TypeInt,
+							Description: "Memory per worker nod (in GiB)",
+							Required:    true,
+						},
+						"storage": {
+							Type:        schema.TypeInt,
+							Description: "Storage per worker node (in GiB)",
+							Required:    true,
+						},
+						"storage_type": {
+							Type:        schema.TypeString,
+							Description: "Storage type (one of storage, storage_high, storage_insane)",
+							Optional:    true,
+							Default:     "storage_insane",
+							ValidateFunc: func(v interface{}, k string) (ws []string, errors []error) {
+								valid := false
+								for _, stype := range storageTypes {
+									if v.(string) == stype {
+										valid = true
+										break
+									}
+								}
+								if !valid {
+									errors = append(errors, fmt.Errorf("%v is not a valid storage type. Valid types are: %v", v.(string), strings.Join(storageTypes, ",")))
+								}
+								return
+							},
+						},
+					},
 				},
 			},
 			"usage_in_minute": {
@@ -242,21 +251,19 @@ func resourceGridscaleK8sRead(d *schema.ResourceData, meta interface{}) error {
 		return fmt.Errorf("%s error setting listen ports: %v", errorPrefix, err)
 	}
 
-	//Get parameters
-	if err = d.Set("worker_node_ram", props.Parameters["k8s_worker_node_ram"]); err != nil {
-		return fmt.Errorf("%s error setting worker_node_ram: %v", errorPrefix, err)
+	// Get node pool parameters
+	nodePoolList := make([]interface{}, 0)
+	// TODO: The API scheme will be CHANGED in the future. There will be multiple node pools.
+	nodePool := map[string]interface{}{
+		"node_count":   props.Parameters["k8s_worker_node_count"],
+		"cores":        props.Parameters["k8s_worker_node_cores"],
+		"memory":       props.Parameters["k8s_worker_node_ram"],
+		"storage":      props.Parameters["k8s_worker_node_storage"],
+		"storage_type": props.Parameters["k8s_worker_node_storage_type"],
 	}
-	if err = d.Set("worker_node_cores", props.Parameters["k8s_worker_node_cores"]); err != nil {
-		return fmt.Errorf("%s error setting worker_node_cores: %v", errorPrefix, err)
-	}
-	if err = d.Set("worker_node_count", props.Parameters["k8s_worker_node_count"]); err != nil {
-		return fmt.Errorf("%s error setting worker_node_count: %v", errorPrefix, err)
-	}
-	if err = d.Set("worker_node_storage", props.Parameters["k8s_worker_node_storage"]); err != nil {
-		return fmt.Errorf("%s error setting worker_node_storage: %v", errorPrefix, err)
-	}
-	if err = d.Set("worker_node_storage_type", props.Parameters["k8s_worker_node_storage_type"]); err != nil {
-		return fmt.Errorf("%s error setting worker_node_storage_type: %v", errorPrefix, err)
+	nodePoolList = append(nodePoolList, nodePool)
+	if err = d.Set("node_pool", nodePoolList); err != nil {
+		return fmt.Errorf("%s error setting node_pool: %v", errorPrefix, err)
 	}
 
 	//Set labels
@@ -309,12 +316,13 @@ func resourceGridscaleK8sCreate(d *schema.ResourceData, meta interface{}) error 
 		PaaSSecurityZoneUUID:    d.Get("security_zone_uuid").(string),
 	}
 
+	// TODO: The API scheme will be CHANGED in the future. There will be multiple node pools.
 	params := make(map[string]interface{})
-	params["k8s_worker_node_ram"] = d.Get("worker_node_ram")
-	params["k8s_worker_node_cores"] = d.Get("worker_node_cores")
-	params["k8s_worker_node_count"] = d.Get("worker_node_count")
-	params["k8s_worker_node_storage"] = d.Get("worker_node_storage")
-	params["k8s_worker_node_storage_type"] = d.Get("worker_node_storage_type")
+	params["k8s_worker_node_ram"] = d.Get("node_pool.0.memory")
+	params["k8s_worker_node_cores"] = d.Get("node_pool.0.cores")
+	params["k8s_worker_node_count"] = d.Get("node_pool.0.node_count")
+	params["k8s_worker_node_storage"] = d.Get("node_pool.0.storage")
+	params["k8s_worker_node_storage_type"] = d.Get("node_pool.0.storage_type")
 	requestBody.Parameters = params
 
 	ctx, cancel := context.WithTimeout(context.Background(), d.Timeout(schema.TimeoutCreate))
@@ -357,12 +365,13 @@ func resourceGridscaleK8sUpdate(d *schema.ResourceData, meta interface{}) error 
 		requestBody.PaaSServiceTemplateUUID = templateUUID
 	}
 
+	// TODO: The API scheme will be CHANGED in the future. There will be multiple node pools.
 	params := make(map[string]interface{})
-	params["k8s_worker_node_ram"] = d.Get("worker_node_ram")
-	params["k8s_worker_node_cores"] = d.Get("worker_node_cores")
-	params["k8s_worker_node_count"] = d.Get("worker_node_count")
-	params["k8s_worker_node_storage"] = d.Get("worker_node_storage")
-	params["k8s_worker_node_storage_type"] = d.Get("worker_node_storage_type")
+	params["k8s_worker_node_ram"] = d.Get("node_pool.0.memory")
+	params["k8s_worker_node_cores"] = d.Get("node_pool.0.cores")
+	params["k8s_worker_node_count"] = d.Get("node_pool.0.node_count")
+	params["k8s_worker_node_storage"] = d.Get("node_pool.0.storage")
+	params["k8s_worker_node_storage_type"] = d.Get("node_pool.0.storage_type")
 	requestBody.Parameters = params
 
 	ctx, cancel := context.WithTimeout(context.Background(), d.Timeout(schema.TimeoutUpdate))
