@@ -111,8 +111,7 @@ func resourceGridscaleK8s() *schema.Resource {
 						"storage_type": {
 							Type:        schema.TypeString,
 							Description: "Storage type (one of storage, storage_high, storage_insane)",
-							Optional:    true,
-							Default:     "storage_insane",
+							Required:    true,
 							ValidateFunc: func(v interface{}, k string) (ws []string, errors []error) {
 								valid := false
 								for _, stype := range storageTypes {
